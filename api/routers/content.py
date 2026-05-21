@@ -18,6 +18,7 @@ Endpoints for generating narrations, image prompts, and titles.
 
 from fastapi import APIRouter, HTTPException
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from api.dependencies import PixelleVideoDep
 from api.schemas.content import (
@@ -27,9 +28,12 @@ from api.schemas.content import (
     ImagePromptGenerateResponse,
     TitleGenerateRequest,
     TitleGenerateResponse,
+    RewriteRequest,
+    RewriteResponse,
+    RewriteMeta,
 )
 from pixelle_video.utils.content_generators import (
-    generate_narrations_from_topic,
+    generate_narrations_from_content,
     generate_image_prompts,
     generate_title,
 )
@@ -57,10 +61,10 @@ async def generate_narration(
     try:
         logger.info(f"Generating {request.n_scenes} narrations from text")
         
-        # Call narration generator utility function
-        narrations = await generate_narrations_from_topic(
+        # Call narration generator utility function (content refinement mode)
+        narrations = await generate_narrations_from_content(
             llm_service=pixelle_video.llm,
-            topic=request.text,
+            content=request.text,
             n_scenes=request.n_scenes,
             min_words=request.min_words,
             max_words=request.max_words
@@ -142,5 +146,154 @@ async def generate_title_endpoint(
         
     except Exception as e:
         logger.error(f"Title generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rewrite", response_model=RewriteResponse)
+async def rewrite_content(
+    request: RewriteRequest,
+    pixelle_video: PixelleVideoDep,
+):
+    """
+    Dynamic few-shot rewrite endpoint
+
+    Matches reference articles by book name, deduplicates,
+    injects as few-shot examples, and generates rewritten content.
+    """
+    try:
+        from pixelle_video.prompts.rewrite import build_system_prompt, build_rewrite_user_message
+        from pixelle_video.services.material_library import MaterialLibrary
+
+        # Match reference materials
+        library = MaterialLibrary()
+        references: list[str] = []
+        if request.book_name.strip() and request.reference_count > 0:
+            references = library.select_references(request.book_name, request.reference_count)
+
+        logger.info(
+            f"Rewrite: book={request.book_name}, refs={len(references)}, "
+            f"originality={request.originality}%"
+        )
+
+        # Build messages
+        system_prompt = build_system_prompt(
+            mode=request.rewrite_mode,
+            originality=request.originality,
+            target_chars=request.target_chars,
+        )
+        user_message = build_rewrite_user_message(request.text, references)
+
+        # Call LLM directly (system + user dual messages)
+        # with provider-aware options and 3-retry backoff
+        import asyncio
+        from openai import AsyncOpenAI, APIStatusError
+        from pixelle_video.config import config_manager
+
+        cfg = config_manager.config.llm
+        client = AsyncOpenAI(
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            timeout=120.0,
+        )
+
+        # Build create_kwargs, only add reasoning_effort for DeepSeek
+        create_kwargs: dict = {
+            "model": cfg.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 5000,
+        }
+        if cfg.provider == "deepseek":
+            create_kwargs["extra_body"] = {"reasoning_effort": "high"}
+
+        content = ""
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = await client.chat.completions.create(**create_kwargs)
+                content = response.choices[0].message.content or ""
+                break
+            except APIStatusError as exc:
+                last_error = exc
+                if exc.status_code == 401:
+                    raise
+                if exc.status_code == 429 or exc.status_code >= 500:
+                    if attempt < 2:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                raise
+            except Exception as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+                else:
+                    raise
+
+        if not content and last_error:
+            raise last_error
+
+        # Build traceability metadata (do NOT auto-save to library)
+        import hashlib
+        from datetime import datetime
+        source_hash = hashlib.sha256(request.text.encode("utf-8")).hexdigest()[:12]
+
+        meta = RewriteMeta(
+            book_name=request.book_name,
+            date=datetime.now().strftime("%Y-%m-%d %H:%M"),
+            originality=request.originality,
+            reference_count=len(references),
+            source_hash=source_hash,
+            target_chars=request.target_chars,
+            rewrite_mode=request.rewrite_mode,
+        )
+
+        return RewriteResponse(
+            content=content,
+            reference_count=len(references),
+            meta=meta,
+        )
+
+    except Exception as e:
+        logger.error(f"Rewrite error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SaveToLibraryRequest(BaseModel):
+    """Request to manually add a reviewed rewrite result to the material library"""
+    book_name: str = Field(..., description="书名")
+    content: str = Field(..., description="洗稿结果（纯文本）")
+
+
+class SaveToLibraryResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    saved: bool = Field(False, description="是否实际保存（去重可能跳过）")
+
+
+@router.post("/rewrite/save-to-library", response_model=SaveToLibraryResponse)
+async def save_to_library(request: SaveToLibraryRequest):
+    """
+    Manually save a reviewed rewrite result to the material library.
+
+    Only call this after the user has reviewed and approved the content.
+    Deduplication is applied: near-duplicates are silently skipped.
+    """
+    try:
+        from pixelle_video.services.material_library import MaterialLibrary
+
+        library = MaterialLibrary()
+        saved = library.save(request.book_name, request.content)
+        logger.info(
+            f"Manual save to library: book={request.book_name}, saved={saved}"
+        )
+        return SaveToLibraryResponse(
+            saved=saved,
+            message="已保存" if saved else "已存在重复，跳过",
+        )
+    except Exception as e:
+        logger.error(f"Save to library error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

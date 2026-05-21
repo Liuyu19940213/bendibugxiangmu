@@ -7,15 +7,17 @@ project_name: Pixelle-Video
 # ==================== LLM Configuration ====================
 # Supports any OpenAI SDK compatible API
 llm:
+  provider: ""  # deepseek / qwen / doubao / openai
   api_key: ""
   base_url: ""
   model: ""
 
 # Popular presets:
-# Qwen Max:        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"  model: "qwen-max"
-# OpenAI GPT-4o:   base_url: "https://api.openai.com/v1"                          model: "gpt-4o"
-# DeepSeek:        base_url: "https://api.deepseek.com"                           model: "deepseek-chat"
-# Ollama (Local):  base_url: "http://localhost:11434/v1"                          model: "llama3.2"
+# DeepSeek:        provider: "deepseek"  base_url: "https://api.deepseek.com"       model: "deepseek-chat"
+# Qwen Max:        provider: "qwen"      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"  model: "qwen-max"
+# Doubao:          provider: "doubao"    base_url: "https://ark.cn-beijing.volces.com/api/v3"           model: "doubao-pro-32k"
+# OpenAI GPT-4o:   provider: "openai"    base_url: "https://api.openai.com/v1"                          model: "gpt-4o"
+# Ollama (Local):  provider: "ollama"    base_url: "http://localhost:11434/v1"                          model: "llama3.2"
 
 # ==================== ComfyUI Configuration ====================
 comfyui:

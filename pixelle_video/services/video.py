@@ -26,10 +26,10 @@ Note: Requires FFmpeg to be installed on the system.
 
 import os
 import shutil
-import tempfile
 import uuid
 from pathlib import Path
 from typing import List, Literal, Optional
+from contextlib import contextmanager
 
 import ffmpeg
 from loguru import logger
@@ -37,8 +37,27 @@ from loguru import logger
 from pixelle_video.utils.os_util import (
     get_resource_path,
     list_resource_files,
-    resource_exists
+    resource_exists,
+    get_temp_path,
 )
+
+
+@contextmanager
+def managed_temp_file(suffix: str = "", prefix: str = "pixelle_", delete: bool = True):
+    """Context manager for temporary files that ensures cleanup."""
+    temp_path = None
+    try:
+        temp_dir = Path(get_temp_path())
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / f"{prefix}{uuid.uuid4().hex}{suffix}"
+        yield temp_path
+    finally:
+        if delete and temp_path and temp_path.exists():
+            try:
+                temp_path.unlink()
+                logger.debug(f"Cleaned up temp file: {temp_path}")
+            except OSError as e:
+                logger.warning(f"Failed to clean up temp file {temp_path}: {e}")
 
 
 def check_ffmpeg() -> None:
@@ -173,37 +192,29 @@ class VideoService:
         FFmpeg equivalent:
             ffmpeg -f concat -safe 0 -i filelist.txt -c copy output.mp4
         """
-        # Create temporary file list
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            delete=False,
-            suffix='.txt',
-            encoding='utf-8'
-        ) as f:
-            for video in videos:
-                abs_path = Path(video).absolute()
-                escaped_path = str(abs_path).replace("'", "'\\''")
-                f.write(f"file '{escaped_path}'\n")
-            filelist = f.name
-        
-        try:
+        with managed_temp_file(suffix='.txt', delete=True) as filelist:
+            # Write file list
+            with open(filelist, 'w', encoding='utf-8') as f:
+                for video in videos:
+                    abs_path = Path(video).absolute()
+                    escaped_path = str(abs_path).replace("'", "'\\''")
+                    f.write(f"file '{escaped_path}'\n")
+            
             logger.debug(f"Created filelist: {filelist}")
-            (
-                ffmpeg
-                .input(filelist, format='concat', safe=0)
-                .output(output, c='copy')
-                .overwrite_output()
-                .run(capture_stdout=True, capture_stderr=True)
-            )
-            logger.success(f"Videos concatenated successfully: {output}")
-            return output
-        except ffmpeg.Error as e:
-            error_msg = e.stderr.decode() if e.stderr else str(e)
-            logger.error(f"FFmpeg concat error: {error_msg}")
-            raise RuntimeError(f"Failed to concatenate videos: {error_msg}")
-        finally:
-            if os.path.exists(filelist):
-                os.unlink(filelist)
+            try:
+                (
+                    ffmpeg
+                    .input(filelist, format='concat', safe=0)
+                    .output(output, c='copy')
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True)
+                )
+                logger.success(f"Videos concatenated successfully: {output}")
+                return output
+            except ffmpeg.Error as e:
+                error_msg = e.stderr.decode() if e.stderr else str(e)
+                logger.error(f"FFmpeg concat error: {error_msg}")
+                raise RuntimeError(f"Failed to concatenate videos: {error_msg}")
     
     def _concat_filter(self, videos: List[str], output: str) -> str:
         """
@@ -262,6 +273,34 @@ class VideoService:
             logger.warning(f"Failed to get video duration: {e}")
             return 0.0
     
+    def extract_audio(self, video: str, output_path: Optional[str] = None, sample_rate: int = 16000) -> str:
+        """
+        Extract audio stream from video file.
+
+        Args:
+            video: Video file path
+            output_path: Output audio file path (auto-generated as .wav if None)
+            sample_rate: Audio sample rate in Hz (default 16000, suitable for ASR)
+
+        Returns:
+            Output audio file path
+        """
+        if not output_path:
+            import uuid
+            output_path = f"output/{uuid.uuid4().hex}.wav"
+            Path("output").mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"🎵 Extracting audio from video: {video} → {output_path}")
+        (
+            ffmpeg
+            .input(video)
+            .output(output_path, vn=None, ac=1, ar=sample_rate, acodec='pcm_s16le')
+            .overwrite_output()
+            .run(quiet=True)
+        )
+        logger.info(f"✅ Audio extracted: {output_path}")
+        return output_path
+
     def _get_audio_duration(self, audio: str) -> float:
         """Get audio duration in seconds"""
         try:

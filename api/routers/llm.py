@@ -16,9 +16,11 @@ LLM (Large Language Model) endpoints
 
 from fastapi import APIRouter, HTTPException
 from loguru import logger
+from openai import AsyncOpenAI
+import httpx
 
 from api.dependencies import PixelleVideoDep
-from api.schemas.llm import LLMChatRequest, LLMChatResponse
+from api.schemas.llm import LLMChatRequest, LLMChatResponse, LLMTestRequest, LLMTestResponse
 
 router = APIRouter(prefix="/llm", tags=["Basic Services"])
 
@@ -57,4 +59,42 @@ async def llm_chat(
     except Exception as e:
         logger.error(f"LLM chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/test", response_model=LLMTestResponse)
+async def llm_test(request: LLMTestRequest):
+    """
+    Test LLM API connectivity
+
+    Creates a temporary OpenAI client with the given credentials
+    and sends a minimal chat request.
+    """
+    try:
+        logger.info(f"LLM test request: provider={request.provider}, model={request.model}")
+
+        client = AsyncOpenAI(
+            base_url=request.api_base,
+            api_key=request.api_key,
+            timeout=httpx.Timeout(15.0, connect=10.0),
+        )
+
+        resp = await client.chat.completions.create(
+            model=request.model,
+            messages=[{"role": "user", "content": "Reply with just OK"}],
+            max_tokens=5,
+            temperature=0,
+        )
+
+        content = resp.choices[0].message.content or ""
+        return LLMTestResponse(
+            ok=True,
+            detail=f"连接成功，模型响应：{content[:80]}"
+        )
+
+    except Exception as e:
+        logger.error(f"LLM test error: {e}")
+        return LLMTestResponse(
+            ok=False,
+            detail=str(e)
+        )
 

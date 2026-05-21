@@ -41,3 +41,19 @@ class LLMChatResponse(BaseModel):
     content: str = Field(..., description="Generated response")
     tokens_used: Optional[int] = Field(None, description="Tokens used (if available)")
 
+
+class LLMTestRequest(BaseModel):
+    """LLM connectivity test request"""
+    provider: str = Field(..., description="Provider name")
+    api_base: str = Field(..., description="API base URL")
+    api_key: str = Field(..., description="API key")
+    model: str = Field(..., description="Model name")
+
+
+class LLMTestResponse(BaseModel):
+    """LLM connectivity test response"""
+    success: bool = True
+    message: str = "Success"
+    ok: bool = Field(..., description="Whether the connection test passed")
+    detail: str = Field("", description="Test result detail")
+

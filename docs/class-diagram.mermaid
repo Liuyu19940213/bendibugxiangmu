@@ -1,0 +1,340 @@
+classDiagram
+    direction TB
+
+    %% ========== 批量创作 ==========
+    class BatchModule {
+        +string id
+        +string bookName
+        +string content
+        +boolean enabled
+        +ModuleParams params
+        +ModuleStatus status
+        +string? errorMessage
+        +number createdAt
+    }
+
+    class ModuleParams {
+        +string voice
+        +string bgm
+        +number[] durationRange
+        +string style
+        +number rewriteStrength
+        +number targetWordCount
+        +number matchMaterialCount
+    }
+
+    class GlobalConfig {
+        +string voice
+        +string bgm
+        +number durationMin
+        +number durationMax
+        +string style
+    }
+
+    class ModuleStatus {
+        <<enumeration>>
+        idle
+        running
+        success
+        failed
+        skipped
+    }
+
+    class BatchRunState {
+        +boolean isRunning
+        +number totalModules
+        +number completedCount
+        +number failedCount
+        +number skippedCount
+        +string? currentBookName
+        +number progress
+        +ModuleResult[] results
+    }
+
+    class ModuleResult {
+        +string moduleId
+        +string bookName
+        +ModuleStatus status
+        +string? errorMessage
+        +string? videoPath
+    }
+
+    %% ========== 精细模式 ==========
+    class FineModeState {
+        +string bookName
+        +string content
+        +FineStep currentStep
+        +string rewrittenContent
+        +string audioPath
+        +string[] imagePaths
+        +string videoPath
+        +boolean isProcessing
+    }
+
+    class FineStep {
+        <<enumeration>>
+        rewrite
+        voice
+        image
+        video
+    }
+
+    %% ========== 素材库 ==========
+    class MediaImage {
+        +string id
+        +string filename
+        +string path
+        +ImageCategory category
+        +string source
+        +string[] tags
+        +string? lastUsedAt
+        +string createdAt
+        +number fileSize
+        +number width
+        +number height
+    }
+
+    class ImageCategory {
+        <<enumeration>>
+        nature
+        studio
+        study
+        abstract
+        uncategorized
+    }
+
+    class BgmTrack {
+        +string id
+        +string name
+        +string path
+        +BgmCategory category
+        +boolean builtin
+        +number fadeIn
+        +number fadeOut
+        +number duration
+    }
+
+    class BgmCategory {
+        <<enumeration>>
+        intense
+        calm
+    }
+
+    %% ========== 设置 ==========
+    class AppSettings {
+        +LLMConfig llm
+        +TTSConfig tts
+        +ComfyUIConfig comfyUI
+        +string outputPath
+    }
+
+    class LLMConfig {
+        +string apiUrl
+        +string apiKey
+        +string model
+        +string provider
+    }
+
+    class TTSConfig {
+        +string mode
+        +string mimoApiUrl
+        +string mimoApiKey
+        +string voiceId
+    }
+
+    class ComfyUIConfig {
+        +string comfyuiUrl
+        +string comfyuiApiKey
+        +boolean localMode
+    }
+
+    %% ========== Python API 请求/响应模型 ==========
+    class BatchRunRequest {
+        +BatchModule[] modules
+        +GlobalConfig globalConfig
+    }
+
+    class BatchRunResponse {
+        +string taskId
+        +number estimatedMinutes
+    }
+
+    class BatchStatusResponse {
+        +boolean isRunning
+        +number totalModules
+        +number completedCount
+        +number failedCount
+        +number skippedCount
+        +ModuleResult[] results
+    }
+
+    class FineRewriteRequest {
+        +string bookName
+        +string content
+        +number targetWordCount
+        +number rewriteStrength
+    }
+
+    class FineTTSRequest {
+        +string text
+        +string voice
+        +string mode
+    }
+
+    class FineVideoRequest {
+        +string bookName
+        +string rewrittenContent
+        +string audioPath
+        +string[] imagePaths
+        +FineVideoParams params
+    }
+
+    class FineVideoParams {
+        +number durationMin
+        +number durationMax
+        +string bgm
+        +string style
+    }
+
+    class ApiResponse~T~ {
+        +number code
+        +T data
+        +string message
+    }
+
+    %% ========== Pinia Stores ==========
+    class useBatchStore {
+        +GlobalConfig globalConfig
+        +BatchModule[] modules
+        +BatchRunState runState
+        +addModule(bookName, content?) void
+        +removeModule(id) void
+        +toggleModule(id) void
+        +updateModuleParams(id, params) void
+        +updateGlobalConfig(config) void
+        +importFromTxt(content) ImportResult
+        +syncSameNameModules(bookName) void
+        +reorderModules() void
+        +startBatchRun() Promise~void~
+        +resumeBatchRun() Promise~void~
+        +cancelBatchRun() Promise~void~
+        +clearCompleted() void
+    }
+
+    class useFineModeStore {
+        +FineModeState state
+        +setBook(bookName, content) void
+        +runRewrite() Promise~void~
+        +runVoice() Promise~void~
+        +runImage() Promise~void~
+        +runVideo() Promise~void~
+        +goToStep(step) void
+        +reset() void
+    }
+
+    class useMediaStore {
+        +MediaImage[] images
+        +BgmTrack[] bgms
+        +string activeTab
+        +ImageCategory imageFilter
+        +BgmCategory bgmFilter
+        +boolean isLoading
+        +fetchImages() Promise~void~
+        +fetchBgm() Promise~void~
+        +uploadImages(files) Promise~void~
+        +uploadBgm(file) Promise~void~
+        +updateTags(id, tags) void
+        +deleteImage(id) void
+        +deleteBgm(id) void
+    }
+
+    class useSettingsStore {
+        +AppSettings settings
+        +boolean isLoaded
+        +boolean isSaving
+        +loadSettings() Promise~void~
+        +saveSettings() Promise~void~
+        +testLlmConnection() Promise~boolean~
+        +testTtsConnection() Promise~boolean~
+        +downloadComfyUI() Promise~void~
+    }
+
+    class useAppStore {
+        +boolean pythonReady
+        +string pythonStatus
+        +boolean isFirstLaunch
+        +initialize() Promise~void~
+        +checkPythonHealth() Promise~boolean~
+        +waitForPython() Promise~void~
+    }
+
+    %% ========== Python 桥接层服务 ==========
+    class BatchService {
+        +ProgressTracker tracker
+        +executeBatch(modules, config) AsyncGenerator
+        +cancelBatch() void
+        +getResumeState() dict
+    }
+
+    class ProgressTracker {
+        +string taskId
+        +number totalModules
+        +number completedCount
+        +number failedCount
+        +number skippedCount
+        +ModuleResult[] results
+        +updateProgress(moduleId, status) void
+        +getSummary() dict
+        +toDict() dict
+    }
+
+    class RewriteService {
+        +LLMService llm
+        +rewriteStream(content, params) AsyncGenerator
+        +checkDeduplication(text) SimilarityResult
+    }
+
+    class MediaService {
+        +SQLiteDatabase db
+        +listImages(filter) ImageList
+        +uploadImage(file, source) MediaImage
+        +deleteImage(id) void
+        +listBgm(filter) BgmList
+        +uploadBgm(file) BgmTrack
+        +matchMaterial(bookName, count) MediaImage[]
+    }
+
+    %% ========== 关系 ==========
+    BatchModule "1" --> "1" ModuleParams : params
+    BatchModule --> ModuleStatus : status
+    BatchRunState "1" --> "*" ModuleResult : results
+    ModuleResult --> ModuleStatus : status
+
+    FineModeState --> FineStep : currentStep
+
+    MediaImage --> ImageCategory : category
+    BgmTrack --> BgmCategory : category
+
+    AppSettings "1" --> "1" LLMConfig : llm
+    AppSettings "1" --> "1" TTSConfig : tts
+    AppSettings "1" --> "1" ComfyUIConfig : comfyUI
+
+    useBatchStore "1" --> "1" GlobalConfig : globalConfig
+    useBatchStore "1" --> "*" BatchModule : modules
+    useBatchStore "1" --> "1" BatchRunState : runState
+    useFineModeStore "1" --> "1" FineModeState : state
+    useMediaStore "1" --> "*" MediaImage : images
+    useMediaStore "1" --> "*" BgmTrack : bgms
+    useSettingsStore "1" --> "1" AppSettings : settings
+
+    BatchRunRequest "1" --> "*" BatchModule : modules
+    BatchRunRequest "1" --> "1" GlobalConfig : globalConfig
+    FineVideoRequest "1" --> "1" FineVideoParams : params
+
+    ApiResponse "1" --> "1" BatchRunResponse : data
+    ApiResponse "1" --> "1" BatchStatusResponse : data
+
+    BatchService "1" --> "1" ProgressTracker : tracker
+    ProgressTracker "1" --> "*" ModuleResult : results
+
+    useApi --> ApiResponse : 所有API响应

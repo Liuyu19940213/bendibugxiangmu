@@ -14,7 +14,7 @@
 Video generation API schemas
 """
 
-from typing import Optional, Literal, Dict, Any
+from typing import Optional, List, Literal, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -41,6 +41,11 @@ class VideoGenerateRequest(BaseModel):
         None, 
         description="TTS workflow key (e.g., 'runninghub/tts_edge.json'). If not specified, uses default workflow from config."
     )
+    tts_speed: Optional[float] = Field(
+        None,
+        ge=0.5, le=2.0,
+        description="TTS playback speed (0.5-2.0). Applied when tts_inference_mode is local."
+    )
     ref_audio: Optional[str] = Field(
         None, 
         description="Reference audio path for voice cloning (optional)"
@@ -59,6 +64,7 @@ class VideoGenerateRequest(BaseModel):
     # === Media Parameters ===
     # Note: media_width and media_height are auto-determined from template meta tags
     media_workflow: Optional[str] = Field(None, description="Custom media workflow (image or video)")
+    image_paths: Optional[List[str]] = Field(None, description="Local image paths to use instead of AI generation (replaces ComfyKit media pipeline)")
     
     # === Video Parameters ===
     video_fps: int = Field(30, ge=15, le=60, description="Video FPS")
@@ -75,6 +81,18 @@ class VideoGenerateRequest(BaseModel):
         description="Custom template parameters (e.g., {'accent_color': '#ff0000', 'background': 'url'}). "
                     "Available parameters depend on the template. Use GET /api/templates/{template_path}/params to discover them."
     )
+
+
+class VideoExtractTextRequest(BaseModel):
+    """Request to extract text from video via ASR"""
+    model_size: str = Field(default="medium", description="Whisper model size: tiny/base/small/medium")
+
+
+class VideoExtractTextResponse(BaseModel):
+    """Response with extracted text"""
+    text: str = Field(..., description="Extracted full text")
+    segments: list[dict] = Field(default_factory=list, description="Segments with start/end timestamps")
+    language: str = Field(default="zh", description="Detected language code")
     
     # === Image Style ===
     prompt_prefix: Optional[str] = Field(None, description="Image style prefix")

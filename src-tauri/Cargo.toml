@@ -1,0 +1,21 @@
+[package]
+name = "pixelle-video"
+version = "0.1.0"
+description = "A video pixelation tool"
+authors = ["Pixelle"]
+edition = "2021"
+
+[lib]
+name = "pixelle_video_lib"
+crate-type = ["lib"]
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2.3.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.44.2", features = ["process", "time"] }
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

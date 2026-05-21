@@ -28,7 +28,6 @@ Linux Environment Requirements:
 import asyncio
 import os
 import re
-import tempfile
 import uuid
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -406,16 +405,17 @@ class HTMLFrameGenerator:
         logger.debug(f"Rendering HTML template to {output_path} (size: {self.width}x{self.height})")
         tmp_html_path = None
         try:
+            from pixelle_video.utils.os_util import get_temp_path
             browser = await self._ensure_browser()
             page = await browser.new_page(
                 viewport={'width': self.width, 'height': self.height},
                 device_scale_factor=1,
             )
             try:
-                # Write HTML to a temp file and navigate via file:// URL so that
-                # local file:// image references are loaded under the same origin.
-                fd, tmp_html_path = tempfile.mkstemp(suffix='.html', prefix='pv_frame_')
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                temp_dir = Path(get_temp_path())
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                tmp_html_path = str(temp_dir / f"pv_frame_{uuid.uuid4().hex[:12]}.html")
+                with open(tmp_html_path, 'w', encoding='utf-8') as f:
                     f.write(html)
                 
                 await page.goto(Path(tmp_html_path).as_uri(), wait_until='networkidle')

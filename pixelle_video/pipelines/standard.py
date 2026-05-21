@@ -153,6 +153,13 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def plan_visuals(self, ctx: PipelineContext):
         """Step 4: Generate image prompts or visual descriptions."""
+        # If user provided local image paths, skip AI image prompt generation entirely
+        image_paths = ctx.params.get("image_paths")
+        if image_paths:
+            ctx.image_prompts = [None] * len(ctx.narrations)
+            logger.info(f"🖼️  Using {len(image_paths)} local images — skipping AI image generation")
+            return
+        
         # Detect template type to determine if media generation is needed
         frame_template = ctx.params.get("frame_template") or "1080x1920/default.html"
         
@@ -281,6 +288,7 @@ class StandardPipeline(LinearVideoPipeline):
         )
         
         # Create frames
+        image_paths = ctx.params.get("image_paths")
         for i, (narration, image_prompt) in enumerate(zip(ctx.narrations, ctx.image_prompts)):
             frame = StoryboardFrame(
                 index=i,
@@ -288,7 +296,13 @@ class StandardPipeline(LinearVideoPipeline):
                 image_prompt=image_prompt,
                 created_at=datetime.now()
             )
+            # If local images provided, cycle through them and set image_path
+            if image_paths:
+                frame.image_path = image_paths[i % len(image_paths)]
             ctx.storyboard.frames.append(frame)
+        
+        if image_paths:
+            logger.info(f"🖼️  Assigned {len(image_paths)} local images to {len(ctx.storyboard.frames)} frames")
 
     async def produce_assets(self, ctx: PipelineContext):
         """Step 6: Generate audio, images, and render frames (Core processing)."""

@@ -17,7 +17,7 @@ Supports both synchronous and asynchronous video generation.
 """
 
 import os
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile
 from loguru import logger
 
 from api.dependencies import PixelleVideoDep
@@ -25,6 +25,8 @@ from api.schemas.video import (
     VideoGenerateRequest,
     VideoGenerateResponse,
     VideoGenerateAsyncResponse,
+    VideoExtractTextRequest,
+    VideoExtractTextResponse,
 )
 from api.tasks import task_manager, TaskType
 
@@ -50,37 +52,28 @@ def path_to_url(request: Request, file_path: str) -> str:
               -> http://localhost:8000/api/files/20251205_233630_c939/final.mp4
         
         Linux:   /home/user/.../output/20251205_233630_c939/final.mp4
-              -> http://localhost:8000/api/files/20251205_233630_c939/final.mp4
-        
-        Domain:  With domain request -> https://your-domain.com/api/files/...
+              -> http://localhost:8000/api/files/...
     """
     from pathlib import Path
-    import os
     
-    # Normalize path separators to forward slashes first (for cross-platform compatibility)
-    file_path = file_path.replace("\\", "/")
+    path = Path(file_path)
+    # Find "output" directory in path hierarchy
+    relative_path = None
     
-    # Check if it's an absolute path (works for both Windows and Linux)
-    is_absolute = os.path.isabs(file_path) or Path(file_path).is_absolute()
+    # Check if path contains "output"
+    for parent in path.parents:
+        if parent.name == "output":
+            relative_path = path.relative_to(parent)
+            break
     
-    if is_absolute:
-        # Find "output" in the path and get everything after it
-        # Split by / to work with normalized paths
-        parts = file_path.split("/")
-        try:
-            output_idx = parts.index("output")
-            # Get all parts after "output" and join them
-            relative_parts = parts[output_idx + 1:]
-            file_path = "/".join(relative_parts)
-        except ValueError:
-            # If "output" not in path, use the filename only
-            file_path = Path(file_path).name
+    if relative_path:
+        # Convert to URL path with / separators
+        file_path = str(relative_path).replace("\\", "/")
     else:
-        # If relative path starting with "output/", remove it
-        if file_path.startswith("output/"):
-            file_path = file_path[7:]  # Remove "output/"
+        # Fallback to filename
+        file_path = path.name
     
-    # Build URL using request's base_url (automatically matches the request host)
+    # Build URL using request's base_url
     base_url = str(request.base_url).rstrip('/')
     return f"{base_url}/api/files/{file_path}"
 
@@ -131,6 +124,7 @@ async def generate_video_sync(
             "media_width": media_width,
             "media_height": media_height,
             "media_workflow": request_body.media_workflow,
+            "image_paths": request_body.image_paths,
             "video_fps": request_body.video_fps,
             "frame_template": request_body.frame_template,
             "prompt_prefix": request_body.prompt_prefix,
@@ -141,6 +135,10 @@ async def generate_video_sync(
         # Add TTS workflow if specified
         if request_body.tts_workflow:
             video_params["tts_workflow"] = request_body.tts_workflow
+        
+        # Add TTS speed if specified
+        if request_body.tts_speed is not None:
+            video_params["tts_speed"] = request_body.tts_speed
         
         # Add ref_audio if specified
         if request_body.ref_audio:
@@ -234,6 +232,7 @@ async def generate_video_async(
                 "media_width": media_width,
                 "media_height": media_height,
                 "media_workflow": request_body.media_workflow,
+            "image_paths": request_body.image_paths,
                 "video_fps": request_body.video_fps,
                 "frame_template": request_body.frame_template,
                 "prompt_prefix": request_body.prompt_prefix,
@@ -246,6 +245,10 @@ async def generate_video_async(
             # Add TTS workflow if specified
             if request_body.tts_workflow:
                 video_params["tts_workflow"] = request_body.tts_workflow
+            
+            # Add TTS speed if specified
+            if request_body.tts_speed is not None:
+                video_params["tts_speed"] = request_body.tts_speed
             
             # Add ref_audio if specified
             if request_body.ref_audio:
@@ -287,4 +290,61 @@ async def generate_video_async(
     except Exception as e:
         logger.error(f"Async video generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/extract-text", response_model=VideoExtractTextResponse)
+async def extract_text_from_video(
+    video_file: UploadFile,
+    model_size: str = "medium",
+    request: Request = None,
+):
+    """
+    Extract audio from video and transcribe to text using Whisper.
+
+    Upload a video file (.mp4, .mov, etc.), extract its audio track,
+    and transcribe to text using openai-whisper.
+
+    **Workflow:**
+    1. Upload video file via multipart/form-data
+    2. ffmpeg extracts audio to .wav (16kHz mono)
+    3. Whisper model transcribes audio to Chinese text
+    4. Returns full text + segment-level timestamps
+
+    Supported model_size: tiny, base, small, medium (default)
+    """
+    import tempfile
+    import os
+    from pathlib import Path
+    from pixelle_video.services.asr_service import transcribe_audio
+
+    allowed = ("tiny", "base", "small", "medium")
+    if model_size not in allowed:
+        raise HTTPException(status_code=400, detail=f"model_size must be one of: {', '.join(allowed)}")
+
+    tmp_dir = tempfile.mkdtemp(prefix="pixelle_extract_")
+    try:
+        video_path = os.path.join(tmp_dir, video_file.filename or "upload.mp4")
+        with open(video_path, "wb") as f:
+            content = await video_file.read()
+            f.write(content)
+
+        from pixelle_video.services.video import VideoService
+        svc = VideoService()
+
+        audio_path = svc.extract_audio(video_path, sample_rate=16000)
+
+        result = await transcribe_audio(
+            audio_path=audio_path,
+            model_size=model_size,
+            language="zh",
+        )
+
+        return VideoExtractTextResponse(
+            text=result["text"],
+            segments=result["segments"],
+            language=result["language"],
+        )
+    finally:
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 

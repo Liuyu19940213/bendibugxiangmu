@@ -24,6 +24,8 @@ from loguru import logger
 
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.utils.tts_util import edge_tts
+from pixelle_video.services.mimo_tts import MimoTTSService
+from pixelle_video.services.minimax_tts import MinimaxTTSService
 from pixelle_video.tts_voices import speed_to_rate
 
 
@@ -122,6 +124,21 @@ class TTSService(ComfyBaseService):
                 speed=speed,
                 output_path=output_path
             )
+        elif mode == "mimo":
+            return await self._call_mimo_tts(
+                text=text,
+                voice=voice,
+                output_path=output_path,
+                **params
+            )
+        elif mode == "minimax":
+            return await self._call_minimax_tts(
+                text=text,
+                voice=voice,
+                speed=speed,
+                output_path=output_path,
+                **params
+            )
         else:  # comfyui
             # 1. Resolve workflow (returns structured info)
             workflow_info = self._resolve_workflow(workflow=workflow)
@@ -194,6 +211,100 @@ class TTSService(ComfyBaseService):
             logger.error(f"Local TTS generation error: {e}")
             raise
     
+    async def _call_mimo_tts(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        output_path: Optional[str] = None,
+        **params
+    ) -> str:
+        """
+        Generate speech using MiMo TTS API (OpenAI-compatible).
+
+        Args:
+            text: Text to convert to speech
+            voice: MiMo voice ID (default: from config)
+            output_path: Custom output path (auto-generated if None)
+            **params: Additional params (voice_src_url for voice cloning)
+
+        Returns:
+            Generated audio file path
+        """
+        mimo_config = self.config.get("mimo", {})
+        api_key = mimo_config.get("api_key", "")
+        if not api_key:
+            raise ValueError("MiMo TTS is not configured: api_key is empty in config.yaml (comfyui.tts.mimo.api_key)")
+
+        base_url = mimo_config.get("base_url", "https://api.mimo-v2.com/v1")
+        default_voice = mimo_config.get("voice", "mimo_default")
+        voice_src_url = params.get("voice_src_url") or mimo_config.get("voice_src_url")
+
+        final_voice = voice or default_voice
+
+        service = MimoTTSService(
+            api_key=api_key,
+            base_url=base_url,
+            voice=final_voice,
+            voice_src_url=voice_src_url,
+        )
+        return await service.synthesize(
+            text=text,
+            voice=final_voice,
+            voice_src_url=voice_src_url,
+            output_path=output_path,
+        )
+    
+    async def _call_minimax_tts(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        speed: Optional[float] = None,
+        output_path: Optional[str] = None,
+        **params
+    ) -> str:
+        """
+        Generate speech using MiniMax Speech 2.8 HD API.
+
+        Args:
+            text: Text to convert to speech
+            voice: MiniMax voice_id (default: from config)
+            speed: Speech speed multiplier (default: 1.0)
+            output_path: Custom output path (auto-generated if None)
+
+        Returns:
+            Generated audio file path
+        """
+        minimax_config = self.config.get("minimax", {})
+        api_key = minimax_config.get("api_key", "")
+        if not api_key:
+            raise ValueError("MiniMax TTS is not configured: api_key is empty in config.yaml (comfyui.tts.minimax.api_key)")
+
+        base_url = minimax_config.get("base_url", "https://api.minimax.chat/v1")
+        default_voice_id = minimax_config.get("voice_id", "default_voice")
+        default_speed = minimax_config.get("speed", 1.0)
+        default_vol = minimax_config.get("vol", 1.0)
+        default_pitch = minimax_config.get("pitch", 0.0)
+
+        final_voice_id = voice or default_voice_id
+        final_speed = speed if speed is not None else default_speed
+
+        service = MinimaxTTSService(
+            api_key=api_key,
+            base_url=base_url,
+            voice_id=final_voice_id,
+            speed=final_speed,
+            vol=params.get("vol", default_vol),
+            pitch=params.get("pitch", default_pitch),
+        )
+        return await service.synthesize(
+            text=text,
+            voice_id=final_voice_id,
+            speed=final_speed,
+            vol=params.get("vol", default_vol),
+            pitch=params.get("pitch", default_pitch),
+            output_path=output_path,
+        )
+
     async def _call_comfyui_workflow(
         self,
         workflow_info: dict,

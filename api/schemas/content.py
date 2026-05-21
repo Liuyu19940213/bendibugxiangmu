@@ -26,8 +26,8 @@ class NarrationGenerateRequest(BaseModel):
     """Narration generation request"""
     text: str = Field(..., description="Source text to generate narrations from")
     n_scenes: int = Field(5, ge=1, le=20, description="Number of scenes")
-    min_words: int = Field(5, ge=1, le=100, description="Minimum words per narration")
-    max_words: int = Field(20, ge=1, le=200, description="Maximum words per narration")
+    min_words: int = Field(5, ge=1, le=5000, description="Minimum words per narration")
+    max_words: int = Field(20, ge=1, le=5000, description="Maximum words per narration")
     
     class Config:
         json_schema_extra = {
@@ -100,4 +100,38 @@ class TitleGenerateResponse(BaseModel):
     success: bool = True
     message: str = "Success"
     title: str = Field(..., description="Generated title")
+
+
+# ============================================================================
+# Dynamic Few-shot Rewrite
+# ============================================================================
+
+class RewriteRequest(BaseModel):
+    """Dynamic few-shot rewrite request"""
+    text: str = Field(..., description="原文")
+    book_name: str = Field("", description="书名（用于素材匹配）")
+    reference_count: int = Field(3, ge=0, le=10, description="对标素材数量")
+    originality: int = Field(30, ge=10, le=80, description="原创度百分比")
+    target_chars: str = Field("3000-4500", description="目标字数范围")
+    rewrite_mode: str = Field("flexible", description="洗稿模式：rigid=锁骨架 | flexible=首尾锁·中段自由")
+
+
+class RewriteMeta(BaseModel):
+    """溯源元数据，嵌入导出文件头部，方便用户追溯评价"""
+    book_name: str = ""
+    date: str = ""
+    originality: int = 30
+    reference_count: int = 0
+    source_hash: str = ""
+    target_chars: str = ""
+    rewrite_mode: str = "flexible"
+
+
+class RewriteResponse(BaseModel):
+    """Rewrite response - plain text + traceability metadata"""
+    success: bool = True
+    message: str = "Success"
+    content: str = Field("", description="洗稿结果（纯文本）")
+    reference_count: int = Field(0, description="实际使用的对标素材数量")
+    meta: RewriteMeta = Field(default_factory=RewriteMeta, description="溯源元数据")
 

@@ -67,3 +67,13 @@ class TemplateParamsResponse(BaseModel):
         description="Custom parameters defined in template. Key is parameter name, value is config."
     )
 
+
+class TemplateContentResponse(BaseModel):
+    """Template HTML content response"""
+    success: bool = True
+    message: str = "Success"
+    template: str = Field(..., description="Template path")
+    html: str = Field(..., description="Raw HTML content of the template")
+    width: int = Field(..., description="Width in pixels")
+    height: int = Field(..., description="Height in pixels")
+

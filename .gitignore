@@ -74,3 +74,16 @@ examples/
 repositories/
 
 *.out
+node_modules
+
+# Green package and large binaries
+Pixelle-Video-Green-Package/
+src-tauri/target/
+src-tauri/binaries/
+*.exe
+*.dll
+
+# Playwright and other temp
+.playwright-cli/
+materials/
+update_pixelle_green.ps1

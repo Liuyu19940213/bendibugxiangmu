@@ -16,9 +16,10 @@ Frame/Template rendering endpoints
 
 from fastapi import APIRouter, HTTPException
 from loguru import logger
+from pathlib import Path
 
 from api.dependencies import PixelleVideoDep
-from api.schemas.frame import FrameRenderRequest, FrameRenderResponse, TemplateParamsResponse
+from api.schemas.frame import FrameRenderRequest, FrameRenderResponse, TemplateParamsResponse, TemplateContentResponse
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.utils.template_util import parse_template_size, resolve_template_path
 
@@ -157,5 +158,31 @@ async def get_template_params(
         raise HTTPException(status_code=404, detail=f"Template not found: {template}")
     except Exception as e:
         logger.error(f"Get template params error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/template/content", response_model=TemplateContentResponse)
+async def get_template_content(template: str):
+    """
+    Get raw HTML content of a template file
+
+    Returns the HTML content, width, and height of the template.
+    Useful for frontend preview rendering.
+    """
+    try:
+        logger.info(f"Get template content: {template}")
+        template_path = resolve_template_path(template)
+        width, height = parse_template_size(template_path)
+        content = Path(template_path).read_text(encoding="utf-8")
+        return TemplateContentResponse(
+            template=template,
+            html=content,
+            width=width,
+            height=height,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Template not found: {template}")
+    except Exception as e:
+        logger.error(f"Get template content error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

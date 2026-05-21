@@ -14,15 +14,33 @@
 API Configuration
 """
 
+import os
+import sys
+from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel
+
+
+def get_app_data_dir() -> str:
+    """获取应用数据目录，绿色版优先使用运行目录下的 data 文件夹"""
+    # 优先尝试运行目录下的 data
+    if getattr(sys, 'frozen', False):
+        # 打包后的执行文件所在目录
+        base_dir = Path(sys.executable).parent
+    else:
+        # 开发时的项目根目录
+        base_dir = Path(__file__).parent.parent
+    
+    data_dir = base_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir.resolve())
 
 
 class APIConfig(BaseModel):
     """API configuration"""
     
     # Server settings
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     reload: bool = False
     
@@ -43,6 +61,9 @@ class APIConfig(BaseModel):
     docs_url: Optional[str] = "/docs"
     redoc_url: Optional[str] = "/redoc"
     openapi_url: Optional[str] = "/openapi.json"
+
+    # Data storage - 使用绿色应用目录
+    data_dir: str = get_app_data_dir()
 
 
 # Global config instance

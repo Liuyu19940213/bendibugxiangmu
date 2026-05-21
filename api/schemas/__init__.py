@@ -31,6 +31,21 @@ from api.schemas.video import (
     VideoGenerateResponse,
     VideoGenerateAsyncResponse,
 )
+from api.schemas.batch import (
+    BatchRunRequest,
+    BatchRunResponse,
+    BatchStatusResponse,
+    BatchCancelResponse,
+    ModuleStatusResponse,
+    CheckUnfinishedResponse,
+    ResumeBatchRequest,
+    ResumeBatchResponse,
+    GlobalConfig,
+    RewriteParams,
+    BatchProgress,
+    ModuleStatus,
+    ModuleStatusDetail,
+)
 
 __all__ = [
     # Base
@@ -56,5 +71,19 @@ __all__ = [
     "VideoGenerateRequest",
     "VideoGenerateResponse",
     "VideoGenerateAsyncResponse",
+    # Batch
+    "BatchRunRequest",
+    "BatchRunResponse",
+    "BatchStatusResponse",
+    "BatchCancelResponse",
+    "ModuleStatusResponse",
+    "CheckUnfinishedResponse",
+    "ResumeBatchRequest",
+    "ResumeBatchResponse",
+    "GlobalConfig",
+    "RewriteParams",
+    "BatchProgress",
+    "ModuleStatus",
+    "ModuleStatusDetail",
 ]
 

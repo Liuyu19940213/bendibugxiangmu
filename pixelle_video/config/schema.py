@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 class LLMConfig(BaseModel):
     """LLM configuration"""
+    provider: str = Field(default="", description="LLM Provider (deepseek/qwen/doubao/openai)")
     api_key: str = Field(default="", description="LLM API Key")
     base_url: str = Field(default="", description="LLM API Base URL")
     model: str = Field(default="", description="LLM Model Name")
@@ -37,11 +38,28 @@ class TTSComfyUIConfig(BaseModel):
     default_workflow: Optional[str] = Field(default=None, description="Default TTS workflow (optional)")
 
 
+class MimoTTSConfig(BaseModel):
+    """MiMo TTS configuration (Xiaomi MiMo-V2.5-TTS via OpenAI-compatible API)"""
+    api_key: str = Field(default="", description="MiMo API Key")
+    base_url: str = Field(default="https://api.mimo-v2.com/v1", description="MiMo API Base URL")
+    voice: str = Field(default="mimo_default", description="MiMo voice ID (mimo_default / custom clone ID)")
+    voice_src_url: Optional[str] = Field(default=None, description="Reference audio URL for voice cloning (optional)")
+
+
+class MinimaxTTSConfig(BaseModel):
+    """MiniMax TTS configuration (海螺 Speech 2.8 HD via T2A v2 API)"""
+    api_key: str = Field(default="", description="MiniMax API Key")
+    base_url: str = Field(default="https://api.minimax.chat/v1", description="MiniMax API Base URL")
+    voice_id: str = Field(default="default_voice", description="MiniMax voice_id (supports cloned voices)")
+
+
 class TTSSubConfig(BaseModel):
     """TTS-specific configuration (under comfyui.tts)"""
-    inference_mode: str = Field(default="local", description="TTS inference mode: 'local' or 'comfyui'")
+    inference_mode: str = Field(default="local", description="TTS inference mode: 'local' / 'comfyui' / 'mimo' / 'minimax'")
     local: TTSLocalConfig = Field(default_factory=TTSLocalConfig, description="Local TTS (Edge TTS) configuration")
     comfyui: TTSComfyUIConfig = Field(default_factory=TTSComfyUIConfig, description="ComfyUI TTS configuration")
+    mimo: MimoTTSConfig = Field(default_factory=MimoTTSConfig, description="MiMo TTS (Xiaomi voice cloning) configuration")
+    minimax: MinimaxTTSConfig = Field(default_factory=MinimaxTTSConfig, description="MiniMax TTS (海螺 Speech 2.8 HD) configuration")
     
     # Backward compatibility: keep default_workflow at top level
     @property

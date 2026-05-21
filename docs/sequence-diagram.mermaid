@@ -1,0 +1,116 @@
+sequenceDiagram
+    actor User
+    participant Tauri as Tauri Rust Shell
+    participant Vue as Vue3 Frontend
+    participant Pinia as useBatchStore
+    participant WS as WebSocket
+    participant Python as Python FastAPI
+    participant Core as PixelleVideoCore
+    participant LLM as LLM API
+    participant DB as SQLite
+
+    %% ===== 应用启动 =====
+    rect rgb(240, 240, 255)
+        Note over User,Core: 1. 应用启动流程
+        User->>Tauri: 双击应用图标
+        Tauri->>Tauri: 初始化窗口 (暗色主题)
+        Tauri->>Python: spawn Python 子进程
+        Python->>Python: 启动 FastAPI (port 19876)
+        Python->>Core: await core.initialize()
+        Core-->>Python: ✅ 服务就绪
+        Tauri->>Python: GET /health (轮询)
+        Python-->>Tauri: 200 OK
+        Tauri->>Vue: 加载 WebView (index.html)
+        Vue->>Vue: createPinia() + createRouter()
+        Vue->>Vue: appStore.initialize()
+        Vue->>Python: GET /api/batch/resume-state
+        Python-->>Vue: {hasUnfinished, taskCount}
+        alt 有未完成任务
+            Vue->>User: 弹窗：「检测到上次未完成任务，是否继续？」
+            User-->>Vue: 选择继续 / 清空
+        end
+        Vue->>User: 显示批量创作首页
+    end
+
+    %% ===== 批量运行 =====
+    rect rgb(255, 245, 240)
+        Note over User,Core: 2. 批量运行完整流程
+        User->>Vue: 点击「导入 TXT」
+        Vue->>Vue: useTxtParser.parse(content)
+        Note over Vue: 空行切段 + 《书名》匹配
+        Vue->>Pinia: addModule × N
+        Pinia-->>Vue: 渲染卡片网格
+
+        User->>Vue: 调整全局配置（配音/BGM/时长）
+        Vue->>Pinia: updateGlobalConfig(params)
+        Note over Pinia: 未覆盖模块自动继承
+
+        User->>Vue: 点击「批量运行」
+        Vue->>Pinia: startBatchRun()
+        Pinia->>Vue: 禁用所有编辑控件
+        Pinia->>WS: 连接 /ws/progress
+        Pinia->>Python: POST /api/batch/run {modules}
+
+        loop 每个已启用模块
+            Python->>Core: generate_video(text, pipeline, ...)
+            Core->>Core: LinearVideoPipeline 8步流程
+            Core-->>Python: ProgressEvent (每步)
+            Python-->>WS: progress 消息
+            WS-->>Pinia: 更新 runState
+            Pinia-->>Vue: 响应式更新进度条
+            
+            alt 模块成功
+                Core-->>Python: VideoGenerationResult
+                Python->>DB: 记录 result
+            else 模块失败
+                Core-->>Python: Exception
+                Python->>Python: 记录 error，继续下一个
+            end
+        end
+
+        Python-->>WS: {type: "complete", summary}
+        WS-->>Pinia: runState.isRunning = false
+        Pinia-->>Vue: 弹出汇总弹窗
+        Vue->>User: ✅成功 N / ❌失败 M / ⏭跳过 K
+    end
+
+    %% ===== 精细模式洗稿 =====
+    rect rgb(240, 255, 240)
+        Note over User,LLM: 3. 精细模式 - 洗稿步骤 (SSE 流式)
+        User->>Vue: 输入书名+文案，点击「开始洗稿」
+        Vue->>Pinia: runRewrite()
+        Pinia->>Python: POST /api/fine/rewrite (SSE)
+        Note over Python,LLM: 复用「再睡一夏」Prompt 逻辑
+        
+        Python->>LLM: 整篇文案 → OpenAI 流式请求
+        LLM-->>Python: data: {"token": "在"}
+        Python-->>Pinia: SSE: token 事件
+        Pinia-->>Vue: 逐字渲染
+        
+        LLM-->>Python: data: {"token": "..."}
+        Python-->>Pinia: SSE: token 事件
+        
+        LLM-->>Python: [DONE]
+        Python-->>Pinia: SSE: complete {charCount, similarity}
+        Pinia-->>Vue: 展示完整洗稿结果
+        Vue->>User: 显示字数统计 + 去重检测结果
+    end
+
+    %% ===== 素材上传与冷却匹配 =====
+    rect rgb(255, 250, 240)
+        Note over User,DB: 4. 素材上传与冷却匹配
+        User->>Vue: 拖拽图片文件到上传区
+        Vue->>Tauri: invoke('read_text_file', path)
+        Tauri-->>Vue: 文件内容
+        Vue->>Python: POST /api/media/images/upload (multipart)
+        Python->>Python: 生成缩略图 + AI 自动标签
+        Python->>DB: INSERT INTO media_images
+        Python-->>Vue: {id, tags, category}
+
+        Note over Vue,DB: === 后续批量运行时素材匹配 ===
+
+        Vue->>Python: GET /api/media/match?bookName=活着&count=5
+        Python->>DB: 查询匹配标签的图片
+        Python->>DB: 过滤 30 天内已使用的图片
+        Python-->>Vue: [matchedImages × 5]
+    end

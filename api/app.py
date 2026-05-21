@@ -33,6 +33,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import argparse
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,7 +55,15 @@ from api.routers import (
     files_router,
     resources_router,
     frame_router,
+    prompts_router,
+    batch_router,
+    schedule_router,
+    rhythm_router,
+    model_manager_router,
 )
+from api.batch_manager import batch_manager
+from api.batch_executor import execute_module
+from api.schedule_executor import schedule_loop
 
 
 @asynccontextmanager
@@ -64,15 +73,17 @@ async def lifespan(app: FastAPI):
     
     Handles startup and shutdown events.
     """
-    # Startup
     logger.info("🚀 Starting Pixelle-Video API...")
     await task_manager.start()
+    await batch_manager.start()
+    batch_manager.set_execution_callback(execute_module)
+    asyncio.create_task(schedule_loop())
     logger.info("✅ Pixelle-Video API started successfully\n")
     
     yield
     
-    # Shutdown
     logger.info("🛑 Shutting down Pixelle-Video API...")
+    await batch_manager.stop()
     await task_manager.stop()
     await shutdown_pixelle_video()
     logger.info("✅ Pixelle-Video API shutdown complete")
@@ -133,7 +144,11 @@ app.include_router(tasks_router, prefix=api_config.api_prefix)
 app.include_router(files_router, prefix=api_config.api_prefix)
 app.include_router(resources_router, prefix=api_config.api_prefix)
 app.include_router(frame_router, prefix=api_config.api_prefix)
-
+app.include_router(prompts_router, prefix=api_config.api_prefix)
+app.include_router(batch_router, prefix=api_config.api_prefix)
+app.include_router(schedule_router, prefix=api_config.api_prefix)
+app.include_router(rhythm_router, prefix=api_config.api_prefix)
+app.include_router(model_manager_router, prefix=api_config.api_prefix)
 
 @app.get("/")
 async def root():
@@ -153,6 +168,7 @@ async def root():
             "files": f"{api_config.api_prefix}/files",
             "resources": f"{api_config.api_prefix}/resources",
             "frame": f"{api_config.api_prefix}/frame",
+            "batch": f"{api_config.api_prefix}/batch",
         }
     }
 
